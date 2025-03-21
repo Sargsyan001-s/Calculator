@@ -54,12 +54,10 @@ def load_users():
     return {}
 
 def save_users(users):
-    #Сохраняет данные пользователей в файл
     with open(USER_DATA_FILE, 'w') as file:
         json.dump(users, file)
 
 def register(username, password):
-    # Регистрирует нового пользователя
     users = load_users()
     if username in users:
         return False
@@ -68,7 +66,6 @@ def register(username, password):
     return True
 
 def login(username, password):
-    #Авторизует пользователя
     users = load_users()
     if username in users and users[username] == password:
         return True
@@ -76,35 +73,61 @@ def login(username, password):
 
 # 4. Логирование действий и ошибок
 def log_action(username, action, error=False):
-    timestamp = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S") # Текущее время
-    log_type = "ERROR" if error else "INFO" # Тип записи (ошибка или информация)
-    log_entry = f"[{log_type}] [{timestamp}] [{username}] – {action}" # Формат записи
-    threaded_save('app.log', log_entry)  # Сохраняем запись в файл в отдельном потоке
+    timestamp = datetime.datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    log_type = "ERROR" if error else "INFO"
+    log_entry = f"[{log_type}] [{timestamp}] [{username}] – {action}"
+    threaded_save('app.log', log_entry)
 
 # 5. Фоновый поток для проверки лицензии
+LICENSE_FILE = 'license.json'
+
+def load_license():
+    if os.path.exists(LICENSE_FILE):
+        with open(LICENSE_FILE, 'r') as file:
+            return json.load(file)
+    return {}
+
+def save_license(license_data):
+    with open(LICENSE_FILE, 'w') as file:
+        json.dump(license_data, file)
+
 class LicenseChecker(threading.Thread):
     def __init__(self, license_duration):
-        #Инициализация потока
         super().__init__()
         self.license_duration = license_duration
-        self.start_time = time.time()# Время начала работы программы
-        self.running = True 
+        self.license_data = load_license()
+        self.running = True
+
+    def is_license_valid(self):
+        if "start_time" not in self.license_data or "key" not in self.license_data:
+            return False
+        elapsed_time = time.time() - self.license_data["start_time"]
+        return elapsed_time <= self.license_duration
 
     def run(self):
         while self.running:
-            elapsed_time = time.time() - self.start_time
-            if elapsed_time > self.license_duration:
-                print("Пробная лицензия программы завершена, чтобы продолжить работу приобретите лицензионный ключ!")
+            if not self.is_license_valid():
+                print("Лицензия истекла! Пожалуйста, введите новый лицензионный ключ.")
                 self.running = False
             time.sleep(1)
 
     def stop(self):
         self.running = False
 
-
 def main():
-    # Запуск фонового потока для проверки лицензии
-    license_checker = LicenseChecker(1800)  
+    license_checker = LicenseChecker(200)  # 200 секунд для теста
+    license_data = load_license()
+
+    # Если лицензия отсутствует или недействительна, запросить новый ключ
+    if "start_time" not in license_data or "key" not in license_data or not license_checker.is_license_valid():
+        license_key = input("Введите лицензионный ключ: ")
+        license_data = {"key": license_key, "start_time": time.time()}
+        save_license(license_data)
+        print("Лицензия активирована!")
+    else:
+        print("Лицензия действительна. Программа запущена.")
+
+    # Запуск проверки лицензии в фоновом режиме
     license_checker.start()
 
     while license_checker.running:
@@ -125,7 +148,7 @@ def main():
             password = input("Введите пароль: ")
             if login(username, password):
                 print("Вход выполнен успешно!")
-                log_action(username, "вошел в систему")  # Логирование входа
+                log_action(username, "вошел в систему")
                 while True:
                     print("1. Сложение")
                     print("2. Вычитание")
@@ -137,7 +160,7 @@ def main():
                     operation = input("Выберите операцию: ")
 
                     if operation == '7':
-                        log_action(username, "вышел из системы")  # Логирование выхода
+                        log_action(username, "вышел из системы")
                         break
 
                     try:
@@ -159,18 +182,20 @@ def main():
                             result = Calculator.sqrt(a)
 
                         print(f"Результат: {result}")
-                        log_action(username, f"выполнил операцию {operation} с результатом {result}")  # Логирование операции
+                        log_action(username, f"выполнил операцию {operation} с результатом {result}")
 
                     except ValueError as e:
                         print(f"Ошибка: {e}")
-                        log_action(username, f"ошибка при выполнении операции: {e}", error=True)  # Логирование ошибки
+                        log_action(username, f"ошибка при выполнении операции: {e}", error=True)
 
             else:
                 print("Неверное имя пользователя или пароль!")
 
-     # Остановка фонового потока при завершении программы
+    # Остановка фонового потока и завершение программы
     license_checker.stop()
     license_checker.join()
+    print("Программа завершена из-за истечения лицензии.")
+    exit(0)  # Завершение программы
 
 if __name__ == "__main__":
     main()
